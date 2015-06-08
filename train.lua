@@ -8,7 +8,7 @@ require 'Embedding'                     -- class name is Embedding (not namespac
 local model_utils=require 'model_utils'
 
 
-cmd = torch.CmdLine()
+local cmd = torch.CmdLine()
 cmd:text()
 cmd:text('Training a simple character-level LSTM language model')
 cmd:text()
@@ -26,7 +26,7 @@ cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:text()
 
 -- parse input params
-opt = cmd:parse(arg)
+local opt = cmd:parse(arg)
 
 -- preparation stuff:
 torch.manualSeed(opt.seed)
@@ -34,13 +34,13 @@ opt.savefile = cmd:string(opt.savefile, opt,
     {save_every=true, print_every=true, savefile=true, vocabfile=true, datafile=true})
     .. '.t7'
 
-local loader = CharLMMinibatchLoader.create( -- TODO: local
+local loader = CharLMMinibatchLoader.create(
         opt.datafile, opt.vocabfile, opt.batch_size, opt.seq_length)
 local vocab_size = loader.vocab_size  -- the number of distinct characters
 
 -- define model prototypes for ONE timestep, then clone them
 --
-protos = {} -- TODO: local
+local protos = {}
 protos.embed = Embedding(vocab_size, opt.rnn_size)
 -- lstm timestep's input: {x, prev_c, prev_h}, output: {next_c, next_h}
 protos.lstm = LSTM.lstm(opt)
@@ -52,7 +52,7 @@ local params, grad_params = model_utils.combine_all_parameters(protos.embed, pro
 params:uniform(-0.08, 0.08)
 
 -- make a bunch of clones, AFTER flattening, as that reallocates memory
-clones = {} -- TODO: local
+local clones = {}
 for name,proto in pairs(protos) do
     print('cloning '..name)
     clones[name] = model_utils.clone_many_times(proto, opt.seq_length, not proto.parameters)
@@ -67,9 +67,9 @@ local dfinalstate_c = initstate_c:clone()
 local dfinalstate_h = initstate_c:clone()
 
 -- do fwd/bwd and return loss, grad_params
-function feval(x)
-    if x ~= params then
-        params:copy(x)
+function feval(params_)
+    if params_ ~= params then
+        params:copy(params_)
     end
     grad_params:zero()
     
@@ -94,7 +94,6 @@ function feval(x)
         predictions[t] = clones.softmax[t]:forward(lstm_h[t])
         loss = loss + clones.criterion[t]:forward(predictions[t], y[{{}, t}])
     end
-    loss = loss / opt.seq_length
 
     ------------------ backward pass -------------------
     -- complete reverse order of the above
@@ -104,7 +103,16 @@ function feval(x)
     for t=opt.seq_length,1,-1 do
         -- backprop through loss, and softmax/linear
         local doutput_t = clones.criterion[t]:backward(predictions[t], y[{{}, t}])
-        dlstm_h[t] = clones.softmax[t]:backward(lstm_h[t], doutput_t)
+        -- Two cases for dloss/dh_t: 
+        --   1. h_T is only used once, sent to the softmax (but not to the next LSTM timestep).
+        --   2. h_t is used twice, for the softmax and for the next step. To obey the
+        --      multivariate chain rule, we add them.
+        if t == opt.seq_length then
+            assert(dlstm_h[t] == nil)
+            dlstm_h[t] = clones.softmax[t]:backward(lstm_h[t], doutput_t)
+        else
+            dlstm_h[t]:add(clones.softmax[t]:backward(lstm_h[t], doutput_t))
+        end
 
         -- backprop through LSTM timestep
         dembeddings[t], dlstm_c[t-1], dlstm_h[t-1] = unpack(clones.lstm[t]:backward(
@@ -128,7 +136,7 @@ function feval(x)
 end
 
 -- optimization stuff
-losses = {} -- TODO: local
+local losses = {}
 local optim_state = {learningRate = 1e-1}
 local iterations = opt.max_epochs * loader.nbatches
 for i = 1, iterations do
@@ -139,7 +147,7 @@ for i = 1, iterations do
         torch.save(opt.savefile, protos)
     end
     if i % opt.print_every == 0 then
-        print(string.format("iteration %4d, loss = %6.8f, gradnorm = %6.4e", i, loss[1], grad_params:norm()))
+        print(string.format("iteration %4d, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, loss[1], loss[1] / opt.seq_length, grad_params:norm()))
     end
 end
 
