@@ -31,6 +31,6 @@ The `practical6-data.tar.gz` file is for 64-bit little-endian CPUs. For all othe
 You may also want to use this faster LSTM factory method, instead of the one in this repository: <https://gist.github.com/karpathy/7bae8033dcf5ca2630ba> which performs all the matrix multiplications at once followed by several `nn.Narrow` operations to extract out the gate values; read its comments for details.
 
 # See course page for practicals
-<https://www.cs.ox.ac.uk/teaching/materials14-15/ml/>
+<https://www.cs.ox.ac.uk/people/nando.defreitas/machinelearning/>
 
 
